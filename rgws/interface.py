@@ -7,22 +7,30 @@ import logging
 import json
 from enum import Enum
 import inspect
+import itertools
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("asyncio").setLevel(logging.INFO)
 logging.getLogger("websockets").setLevel(logging.INFO)
 
 
+async def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
 class ErrorCode(Enum):
     UNKNOWN = 0
     METHOD_NOT_FOUND = 1
     BAD_ARGS = 2
+    NOT_A_DATA_STREAM = 3
 
 
 class Error(object):
-    def __new__(self, *args, **kwargs):
+    async def __new__(self, *args, **kwargs):
         error_code = kwargs.get("code", ErrorCode.UNKNOWN)
-        return json.dumps({"error": error_code.value})
+        yield json.dumps({"error": error_code.value})
 
 
 class JSONRPC(ABC):
@@ -34,6 +42,7 @@ class JSONRPC(ABC):
         super(JSONRPC, self).__init__(**kwargs)
         self.methods = {}
 
+    # function should be a generator!
     def _register(self, func: Callable) -> bool:
         if not callable(func):
             return False
@@ -60,14 +69,16 @@ class JSONRPC(ABC):
     async def dispatch(self, msg, **kwargs):
         cmd = msg.get("cmd", None)
         if not cmd:
-            return None
+            return Error(ErrorCode.UNKNOWN)
         args = msg.get("args", {})
         func = self.methods.get(cmd, None)
         if not func:
             logging.debug(f"{func} {cmd}")
             return Error(ErrorCode.METHOD_NOT_FOUND)
         try:
-            ret = await func(*args, **kwargs)
+            ret = func(*args)
+            if asyncio.iscoroutinefunction(func):
+                ret = await ret
         except TypeError:
             logging.error(
                 f"User passed wrong arguments to {cmd}: {args}", exc_info=True
@@ -86,7 +97,8 @@ class WebsocketClient(JSONRPC):
 
     # Call function at remote server by name
     def __getattr__(self, name):
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args):
+            logging.debug(f"{args}")
             await self.ws.send(json.dumps({"cmd": name, "args": args}))
             return json.loads(await self.ws.recv())
 
@@ -95,6 +107,18 @@ class WebsocketClient(JSONRPC):
     @abstractmethod
     async def _producer(self, websocket):
         raise NotImplementedError("Implement producer at your own class")
+
+    # Read websocket if you except to receive a data stream
+    async def read_data_stream(self, websocket, func):
+        await func()
+        chunks_united = []
+        while True:
+            data = json.loads(await websocket.recv())
+            chunk = data.get("chunk", None)
+            if not chunk:
+                break
+            chunks_united.append(chunk)
+        return list(itertools.chain(*chunks_united))
 
     async def run(self):
         self.ws = await websockets.connect(self.uri)
@@ -126,5 +150,19 @@ class WebsocketServer(JSONRPC):
                 continue
             await self._consumer(websocket, msg)
 
+    # Make data stream and give the async generator to user.
+    # Use return for data_stream instead of yield
+    async def make_data_stream(self, data):
+        yield json.dumps({"chunk": None})
+        async for chunk in chunks(data, 100):
+            yield json.dumps({"chunk": chunk})
+        yield json.dumps({"chunk": None})
+
     def run(self, **kwargs):
-        return websockets.serve(self.handler, self.host, self.port, **kwargs)
+        return websockets.serve(
+            self.handler,
+            self.host,
+            self.port,
+            max_size=None,
+            **kwargs,
+        )

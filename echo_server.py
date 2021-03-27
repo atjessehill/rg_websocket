@@ -5,22 +5,26 @@ import json, asyncio
 class SimpleServerInterface(WebsocketServer):
     def __init__(self, **kwargs):
         super(SimpleServerInterface, self).__init__(**kwargs)
-        self.secret_value = "MY_SUPER_SECRET_KEY"
-        self._register(self.get_super_secret)
-        self._register(self.start_record)
-        self._register(self.stop_record)
+        self._register(self.example_func)
+        self._register(self.stream_func)
+
+    """
+    This overrides _consumer method in WebsocketServer, there should
+    business logic be placed if any. At this point we are just 
+    dispatching function from message and sending result back.
+    """
 
     async def _consumer(self, websocket, message):
-        await websocket.send(await self.dispatch(message))
+        ret = await self.dispatch(message)
+        async for gen in ret:
+            await websocket.send(gen)
 
-    async def get_super_secret(self):
-        return json.dumps({"resp": self.secret_value})
+    async def example_func(self, bla):
+        yield json.dumps({"resp": bla})
 
-    async def start_record(self):
-        return json.dumps({"resp": "started"})
-
-    async def stop_record(self):
-        return json.dumps({"resp": "stopped"})
+    async def stream_func(self):
+        data = [0.0] * 2 ** 20
+        return self.make_data_stream(data)
 
 
 if __name__ == "__main__":
