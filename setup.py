@@ -12,7 +12,7 @@ URL = "https://github.com/Redict/rg_websocket"
 EMAIL = "nurik040404@gmail.com"
 AUTHOR = "canvas123"
 REQUIRES_PYTHON = ">=3.6.0"
-VERSION = "0.1.1"
+VERSION = "0.1.3"
 
 # What packages are required for this module to be executed?
 REQUIRED = [

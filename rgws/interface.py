@@ -118,7 +118,7 @@ class WebsocketClient(JSONRPC):
             if not chunk:
                 break
             chunks_united.append(chunk)
-        return list(itertools.chain(*chunks_united))
+        return json.loads("".join(list(itertools.chain(*chunks_united))))
 
     async def run(self):
         self.ws = await websockets.connect(self.uri)
