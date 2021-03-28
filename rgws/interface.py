@@ -64,19 +64,19 @@ class JSONRPC(ABC):
         for name, f in self.methods.items():
             args = list(filter(lambda x: x != "self", inspect.signature(f).parameters))
             fs.append({"cmd": name, "args": args})
-        return json.dumps(fs)
+        yield json.dumps(fs)
 
-    async def dispatch(self, msg, **kwargs):
+    async def dispatch(self, msg):
         cmd = msg.get("cmd", None)
         if not cmd:
             return Error(ErrorCode.UNKNOWN)
         args = msg.get("args", {})
         func = self.methods.get(cmd, None)
         if not func:
-            logging.debug(f"{func} {cmd}")
+            # logging.debug(f"{func} {cmd}")
             return Error(ErrorCode.METHOD_NOT_FOUND)
         try:
-            ret = func(*args)
+            ret = func(*args.get("pos", []), **args.get("kw", {}))
             if asyncio.iscoroutinefunction(func):
                 ret = await ret
         except TypeError:
@@ -97,9 +97,10 @@ class WebsocketClient(JSONRPC):
 
     # Call function at remote server by name
     def __getattr__(self, name):
-        async def wrapper(*args):
-            logging.debug(f"{args}")
-            await self.ws.send(json.dumps({"cmd": name, "args": args}))
+        async def wrapper(*args, **kwargs):
+            await self.ws.send(
+                json.dumps({"cmd": name, "args": {"pos": args, "kw": kwargs}})
+            )
             return json.loads(await self.ws.recv())
 
         return wrapper
@@ -122,7 +123,8 @@ class WebsocketClient(JSONRPC):
 
     async def run(self):
         self.ws = await websockets.connect(self.uri)
-        return await self._producer(self.ws)
+        await self._producer(self.ws)
+        return await self.ws.close()
 
 
 class WebsocketServer(JSONRPC):
@@ -147,6 +149,7 @@ class WebsocketServer(JSONRPC):
             try:
                 msg = json.loads(message)
             except json.decoder.JSONDecodeError:
+                logging.error("Wrong JSON passed", exc_info=True)
                 continue
             await self._consumer(websocket, msg)
 
