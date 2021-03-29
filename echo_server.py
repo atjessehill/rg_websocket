@@ -1,4 +1,4 @@
-from rgws.interface_aiohttp import WebsocketServer
+from rgws.interface import WebsocketServer
 import json, asyncio
 
 
@@ -22,13 +22,13 @@ class SimpleServerInterface(WebsocketServer):
     async def example_func(self, bla):
         yield {"resp": bla}
 
-    async def stream_fubig_data_funcnc(self):
+    async def big_data_func(self):
         data = [0.0] * 2 ** 20
         yield {"resp": data}
 
 
 if __name__ == "__main__":
-    s = SimpleServerInterface(host="localhost", port=8080)
+    s = SimpleServerInterface(host="localhost", port=8723)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(s.run(compression=None))
+    loop.run_until_complete(s.run())
     loop.run_forever()

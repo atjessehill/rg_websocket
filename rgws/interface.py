@@ -92,18 +92,6 @@ class WebsocketClient(JSONRPC):
     async def _producer(self, ws):
         raise NotImplementedError("Implement producer at your own class")
 
-    # Read websocket if you except to receive a data stream
-    async def read_data_stream(self, websocket, func):
-        await func()
-        chunks_united = []
-        while True:
-            data = json.loads(await websocket.recv())
-            chunk = data.get("chunk", None)
-            if not chunk:
-                break
-            chunks_united.append(chunk)
-        return json.loads("".join(list(itertools.chain(*chunks_united))))
-
     async def run(self, **kwargs):
         session = ClientSession()
         async with session.ws_connect(self.uri, max_msg_size=10 ** 100) as ws:
@@ -153,4 +141,4 @@ class WebsocketServer(JSONRPC):
     def run(self, **kwargs):
         app = web.Application()
         app.add_routes([web.get("/", self.handler)])
-        web.run_app(app)
+        web.run_app(app, host=self.host, port=self.port, **kwargs)

@@ -1,4 +1,4 @@
-from rgws.interface_aiohttp import WebsocketClient
+from rgws.interface import WebsocketClient
 import json, logging, asyncio
 
 
