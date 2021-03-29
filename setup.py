@@ -12,11 +12,11 @@ URL = "https://github.com/Redict/rg_websocket"
 EMAIL = "nurik040404@gmail.com"
 AUTHOR = "canvas123"
 REQUIRES_PYTHON = ">=3.6.0"
-VERSION = "0.1.4"
+VERSION = "0.1.4.post0"
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-    "websockets",
+    "aiohttp",
 ]
 
 # What packages are optional?

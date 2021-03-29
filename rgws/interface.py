@@ -1,5 +1,5 @@
 import asyncio
-import websockets
+from aiohttp import web, WSMsgType, WSMessage, ClientSession
 from abc import ABC, abstractmethod
 from typing import Callable, Union
 from types import FunctionType
@@ -11,26 +11,20 @@ import itertools
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("asyncio").setLevel(logging.INFO)
-logging.getLogger("websockets").setLevel(logging.INFO)
-
-
-async def chunks(lst, n):
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]
 
 
 class ErrorCode(Enum):
     UNKNOWN = 0
-    METHOD_NOT_FOUND = 1
-    BAD_ARGS = 2
-    NOT_A_DATA_STREAM = 3
+    NO_METHOD_SPECIFIED = 1
+    METHOD_NOT_FOUND = 2
+    BAD_ARGS = 3
+    NOT_A_DATA_STREAM = 4
 
 
 class Error(object):
     async def __new__(self, *args, **kwargs):
         error_code = kwargs.get("code", ErrorCode.UNKNOWN)
-        yield json.dumps({"error": error_code.value})
+        yield {"error": error_code.value}
 
 
 class JSONRPC(ABC):
@@ -59,21 +53,13 @@ class JSONRPC(ABC):
             return True
         return False
 
-    async def get_methods(self):
-        fs = []
-        for name, f in self.methods.items():
-            args = list(filter(lambda x: x != "self", inspect.signature(f).parameters))
-            fs.append({"cmd": name, "args": args})
-        yield json.dumps(fs)
-
     async def dispatch(self, msg):
         cmd = msg.get("cmd", None)
         if not cmd:
-            return Error(ErrorCode.UNKNOWN)
+            return Error(ErrorCode.NO_METHOD_SPECIFIED)
         args = msg.get("args", {})
         func = self.methods.get(cmd, None)
         if not func:
-            # logging.debug(f"{func} {cmd}")
             return Error(ErrorCode.METHOD_NOT_FOUND)
         try:
             ret = func(*args.get("pos", []), **args.get("kw", {}))
@@ -93,20 +79,17 @@ class WebsocketClient(JSONRPC):
         self.host = host
         self.port = port
         self.uri = f"ws://{self.host}:{self.port}"
-        self.ws = None
 
     # Call function at remote server by name
     def __getattr__(self, name):
         async def wrapper(*args, **kwargs):
-            await self.ws.send(
-                json.dumps({"cmd": name, "args": {"pos": args, "kw": kwargs}})
-            )
-            return json.loads(await self.ws.recv())
+            await self.ws.send_json({"cmd": name, "args": {"pos": args, "kw": kwargs}})
+            return (await self.ws.receive()).json()
 
         return wrapper
 
     @abstractmethod
-    async def _producer(self, websocket):
+    async def _producer(self, ws):
         raise NotImplementedError("Implement producer at your own class")
 
     # Read websocket if you except to receive a data stream
@@ -121,10 +104,13 @@ class WebsocketClient(JSONRPC):
             chunks_united.append(chunk)
         return json.loads("".join(list(itertools.chain(*chunks_united))))
 
-    async def run(self):
-        self.ws = await websockets.connect(self.uri)
-        await self._producer(self.ws)
-        return await self.ws.close()
+    async def run(self, **kwargs):
+        session = ClientSession()
+        async with session.ws_connect(self.uri, max_msg_size=10 ** 100) as ws:
+            self.ws = ws
+            await self._producer(ws)
+            await session.close()
+        logging.debug("connection closed")
 
 
 class WebsocketServer(JSONRPC):
@@ -138,34 +124,33 @@ class WebsocketServer(JSONRPC):
         self.host = host
         self.port = port
 
+    # Function to list registered method
+    async def get_methods(self):
+        fs = []
+        for name, f in self.methods.items():
+            args = list(filter(lambda x: x != "self", inspect.signature(f).parameters))
+            fs.append({"cmd": name, "args": args})
+        yield fs
+
     @abstractmethod
-    async def _consumer(
-        self, websocket: websockets.WebSocketCommonProtocol, message: dict
-    ):
+    async def _consumer(self, websocket: web.WebSocketResponse, message: WSMessage):
         raise NotImplementedError("Implement consumer at your own class")
 
-    async def handler(self, websocket: websockets.WebSocketCommonProtocol, path: str):
-        async for message in websocket:
-            try:
-                msg = json.loads(message)
-            except json.decoder.JSONDecodeError:
-                logging.error("Wrong JSON passed", exc_info=True)
-                continue
-            await self._consumer(websocket, msg)
+    async def handler(self, request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
 
-    # Make data stream and give the async generator to user.
-    # Use return for data_stream instead of yield
-    async def make_data_stream(self, data):
-        yield json.dumps({"chunk": None})
-        async for chunk in chunks(data, 100):
-            yield json.dumps({"chunk": chunk})
-        yield json.dumps({"chunk": None})
+        async for msg in ws:
+            logging.debug(msg.data)
+            if msg.type == WSMsgType.TEXT:
+                await self._consumer(ws, msg.json())
+            elif msg.type == WSMsgType.ERROR:
+                logging.error(f"ws connection closed with exception {ws.exception()}")
+        logging.debug("websocket connection closed")
+
+        return ws
 
     def run(self, **kwargs):
-        return websockets.serve(
-            self.handler,
-            self.host,
-            self.port,
-            max_size=None,
-            **kwargs,
-        )
+        app = web.Application()
+        app.add_routes([web.get("/", self.handler)])
+        web.run_app(app)

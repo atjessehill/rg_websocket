@@ -1,4 +1,4 @@
-from rgws.interface import WebsocketClient
+from rgws.interface_aiohttp import WebsocketClient
 import json, logging, asyncio
 
 
@@ -12,10 +12,10 @@ class SimpleClientInterface(WebsocketClient):
     then exits.
     """
 
-    async def _producer(self, websocket):
+    async def _producer(self, ws):
         logging.debug(await self.example_func("blo"))
-        # if you want to pass function with arguments, you can use functools.partial(func, args)
-        logging.debug(await self.read_data_stream(websocket, self.stream_func))
+        await asyncio.sleep(2)
+        logging.debug(await self.big_data_func())
 
 
 if __name__ == "__main__":

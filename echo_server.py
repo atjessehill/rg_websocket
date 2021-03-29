@@ -1,4 +1,4 @@
-from rgws.interface import WebsocketServer
+from rgws.interface_aiohttp import WebsocketServer
 import json, asyncio
 
 
@@ -6,7 +6,7 @@ class SimpleServerInterface(WebsocketServer):
     def __init__(self, **kwargs):
         super(SimpleServerInterface, self).__init__(**kwargs)
         self._register(self.example_func)
-        self._register(self.stream_func)
+        self._register(self.big_data_func)
 
     """
     This overrides _consumer method in WebsocketServer, there should
@@ -14,17 +14,17 @@ class SimpleServerInterface(WebsocketServer):
     dispatching function from message and sending result back.
     """
 
-    async def _consumer(self, websocket, message):
+    async def _consumer(self, ws, message):
         ret = await self.dispatch(message)
-        async for gen in ret:
-            await websocket.send(gen)
+        async for msg in ret:
+            await ws.send_json(msg)
 
     async def example_func(self, bla):
-        yield json.dumps({"resp": bla})
+        yield {"resp": bla}
 
-    async def stream_func(self):
+    async def stream_fubig_data_funcnc(self):
         data = [0.0] * 2 ** 20
-        return self.make_data_stream(data)
+        yield {"resp": data}
 
 
 if __name__ == "__main__":
