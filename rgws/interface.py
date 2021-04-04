@@ -9,9 +9,6 @@ from enum import Enum
 import inspect
 import itertools
 
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger("asyncio").setLevel(logging.INFO)
-
 
 class ErrorCode(Enum):
     UNKNOWN = 0
