@@ -90,11 +90,21 @@ class WebsocketClient(JSONRPC):
         raise NotImplementedError("Implement producer at your own class")
 
     async def run(self, **kwargs):
+        
+        retry = 5
         session = ClientSession()
-        async with session.ws_connect(self.uri, max_msg_size=10 ** 100) as ws:
-            self.ws = ws
-            await self._producer(ws)
-            await session.close()
+        while True:
+            try:
+                async with session.ws_connect(self.uri, max_msg_size=10 ** 100) as ws:
+                    self.ws = ws
+                    await self._producer(ws)
+                    await session.close()
+                    break
+            except Excpetion as e:
+                logging.debug(f"Server is not running yet. Retrying in {retry} seconds...")
+            
+            asyncio.sleep(retry)
+            
         logging.debug("connection closed")
 
 
