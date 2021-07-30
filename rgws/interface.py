@@ -91,10 +91,21 @@ class WebsocketClient(JSONRPC):
 
     async def run(self, **kwargs):
         session = ClientSession()
-        async with session.ws_connect(self.uri, max_msg_size=10 ** 100) as ws:
-            self.ws = ws
-            await self._producer(ws)
-            await session.close()
+
+        retry = 5
+        while True:
+
+            try:
+                async with session.ws_connect(self.uri, max_msg_size=10 ** 100) as ws:
+                    self.ws = ws
+                    await self._producer(ws)
+                    await session.close()
+                    break
+            except Exception as e:
+                print(f"Server is not running yet retrying in {retry} seconds...")
+
+            await asyncio.sleep(retry)
+
         logging.debug("connection closed")
 
 
